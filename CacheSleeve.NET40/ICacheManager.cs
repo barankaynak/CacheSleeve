@@ -8,9 +8,7 @@ namespace CacheSleeve
         string AddPrefix(string key);
 
         bool Debug { get; set; }
-
-        string GenerateOverview();
-
+        
         IEnumerable<RedisKey> GetAllKeys(string pattern = null);
 
         IDatabase GetDatebase();

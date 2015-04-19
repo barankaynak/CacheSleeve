@@ -16,6 +16,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CacheSleeve.Tests", "CacheS
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CacheSleeve.NET40", "CacheSleeve.NET40\CacheSleeve.NET40.csproj", "{FEA590F2-506A-4E20-ABD0-C2C3804C4C1D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CacheSleeve.Overview", "CacheSleeve.Overview\CacheSleeve.Overview.csproj", "{3D133E77-81C4-4397-BD21-1954C26FB10C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -34,6 +36,10 @@ Global
 		{FEA590F2-506A-4E20-ABD0-C2C3804C4C1D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FEA590F2-506A-4E20-ABD0-C2C3804C4C1D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FEA590F2-506A-4E20-ABD0-C2C3804C4C1D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3D133E77-81C4-4397-BD21-1954C26FB10C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3D133E77-81C4-4397-BD21-1954C26FB10C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3D133E77-81C4-4397-BD21-1954C26FB10C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3D133E77-81C4-4397-BD21-1954C26FB10C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
