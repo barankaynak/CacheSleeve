@@ -1,46 +1,39 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
-using System.Threading.Tasks;
 using CacheSleeve.Models;
-using Newtonsoft.Json;
 using StackExchange.Redis;
 
 namespace CacheSleeve
 {
     public partial class RedisCacher : ICacher
     {
-        private readonly ICacheManager _cacheSleeve;
+        private ConnectionMultiplexer _redisConnection;
+        private int _redisDb;
         private readonly IObjectSerializer _objectSerializer;
-
-        public RedisCacher()
-        {
-            _cacheSleeve = CacheManager.Settings;
-            _cacheSleeve.Debug = true;
-
-            _objectSerializer = new JsonObjectSerializer();
-        }
+        private readonly ICacheLogger _logger;
 
         public RedisCacher(
-            ICacheManager cacheManger,
-            IObjectSerializer serializer)
+            IRedisConnection redisConnection,
+            IObjectSerializer serializer,
+            ICacheLogger logger)
         {
-            _cacheSleeve = cacheManger;
+            _redisConnection = redisConnection.Connection;
+            _redisDb = redisConnection.RedisDb;
             _objectSerializer = serializer;
+            _logger = logger;
         }
 
 
         public T Get<T>(string key)
         {
-            var conn = _cacheSleeve.GetDatebase();
-            var redisKey = _cacheSleeve.AddPrefix(key);
+            var conn = _redisConnection.GetDatabase(_redisDb);
             if (typeof(T) == typeof(string) || typeof(T) == typeof(byte[]))
-                return (T)(dynamic)conn.StringGet(redisKey);
+                return (T)(dynamic)conn.StringGet(key);
             string result;
             try
             {
-                result = conn.StringGet(redisKey);
+                result = conn.StringGet(key);
             }
             catch (Exception)
             {
@@ -50,14 +43,13 @@ namespace CacheSleeve
                 return _objectSerializer.DeserializeObject<T>(result);
             return default(T);
         }
-        
+
         public bool Set<T>(string key, T value, string parentKey = null)
         {
-            var redisKey = _cacheSleeve.AddPrefix(key);
-            if (InternalSet(redisKey, value))
+            if (InternalSet(key, value))
             {
-                RemoveDependencies(redisKey);
-                SetDependencies(redisKey, _cacheSleeve.AddPrefix(parentKey));
+                RemoveDependencies(key);
+                SetDependencies(key, parentKey);
             }
             return true;
         }
@@ -66,32 +58,31 @@ namespace CacheSleeve
         {
             return Set(key, value, expiresAt - DateTime.Now, parentKey);
         }
-        
+
         public bool Set<T>(string key, T value, TimeSpan expiresIn, string parentKey = null)
         {
-
-            var redisKey = _cacheSleeve.AddPrefix(key);
-            var result = InternalSet(redisKey, value);
+            var result = InternalSet(key, value);
             if (result)
             {
-                var conn = _cacheSleeve.GetDatebase();
-                result = conn.KeyExpire(redisKey, expiresIn);
-                RemoveDependencies(redisKey);
-                SetDependencies(redisKey, _cacheSleeve.AddPrefix(parentKey));
+                var conn = _redisConnection.GetDatabase(_redisDb);
+                result = conn.KeyExpire(key, expiresIn);
+                RemoveDependencies(key);
+                SetDependencies(key, parentKey);
             }
             return result;
         }
 
         public bool Remove(string key)
         {
-            var conn = _cacheSleeve.GetDatebase();
-            var redisKey = _cacheSleeve.AddPrefix(key);
-            if (conn.KeyDelete(redisKey))
+            var conn = _redisConnection.GetDatabase(_redisDb);
+            if (conn.KeyDelete(key))
             {
-                RemoveDependencies(redisKey);
-                conn.KeyDelete(redisKey + ".parent");
-                if (_cacheSleeve.Debug)
-                    Trace.WriteLine(string.Format("CS Redis: Removed cache item with key {0}", key));
+                RemoveDependencies(key);
+                conn.KeyDelete(key + ".parent");
+
+                if (_logger.DebugEnabled)
+                    _logger.Debug(String.Format("CS Redis: Removed cache item with key {0}", key));
+
                 return true;
             }
             return false;
@@ -99,24 +90,33 @@ namespace CacheSleeve
 
         public void FlushAll()
         {
-            var keys = _cacheSleeve.GetAllKeys();
-            _cacheSleeve.GetDatebase().KeyDelete(keys.ToArray());
+            foreach (var endpoint in _redisConnection.GetEndPoints())
+            {
+                var server = _redisConnection.GetServer(endpoint);
+                server.FlushDatabase(_redisDb);
+            }
         }
 
         public IEnumerable<Key> GetAllKeys()
         {
-            var conn = _cacheSleeve.GetDatebase();
-            var keys = new List<Key>();
-            var keyStrings = _cacheSleeve.GetAllKeys();
-            foreach (var keyString in keyStrings)
+            var conn = _redisConnection.GetDatabase(_redisDb);
+            var keys = new List<RedisKey>();
+            foreach (var endpoint in _redisConnection.GetEndPoints())
+            {
+                var server = _redisConnection.GetServer(endpoint);
+                if (!server.IsSlave)
+                    keys.AddRange(server.Keys(_redisDb, "*"));
+            }
+            var listOfKeys = new List<Key>(keys.Count);
+            foreach (var keyString in keys)
             {
                 var ttl = conn.KeyTimeToLive(keyString);
                 var expiration = default(DateTime?);
                 if (ttl != null)
                     expiration = DateTime.Now.AddSeconds(ttl.Value.TotalSeconds);
-                keys.Add(new Key(keyString, expiration));
+                listOfKeys.Add(new Key(keyString, expiration));
             }
-            return keys;
+            return listOfKeys;
         }
 
         /// <summary>
@@ -126,8 +126,8 @@ namespace CacheSleeve
         /// <returns>The amount of time in seconds.</returns>
         public long TimeToLive(string key)
         {
-            var conn = _cacheSleeve.GetDatebase();
-            var ttl = conn.KeyTimeToLive(_cacheSleeve.AddPrefix(key));
+            var conn = _redisConnection.GetDatabase(_redisDb);
+            var ttl = conn.KeyTimeToLive(key);
             if (ttl == null)
                 return -1;
             return (long)ttl.Value.TotalSeconds;
@@ -137,12 +137,24 @@ namespace CacheSleeve
         /// Publishes a message with a specified key.
         /// Any clients connected to the Redis server and subscribed to the key will recieve the message.
         /// </summary>
-        /// <param name="key">The key that other clients subscribe to.</param>
+        /// <param name="channel">The channel that other clients subscribe to.</param>
         /// <param name="message">The message to send to subscribed clients.</param>
-        public void PublishToKey(string key, string message)
+        public void PublishToChannel(string channel, string message)
         {
-            var conn = _cacheSleeve.GetDatebase();
-            conn.Publish(key, message);
+            var subscriber = _redisConnection.GetSubscriber();
+            subscriber.Publish(channel, message, CommandFlags.FireAndForget);
+        }
+
+        /// <summary>
+        /// Subscribes client to a channel.
+        /// Client will recieve any message published to channel.
+        /// </summary>
+        /// <param name="channel">The channel to subscribe. You can subscribe to multiple channels using wildcard(*)</param>
+        /// <param name="handler">Handler that will process received messages.</param>
+        public void SubscribeToChannel(string channel, Action<string, string> handler)
+        {
+            var subscriber = _redisConnection.GetSubscriber();
+            subscriber.Subscribe(channel, (ch, v) => handler(ch, v));
         }
 
 
@@ -155,7 +167,7 @@ namespace CacheSleeve
         /// <returns></returns>
         private bool InternalSet<T>(string key, T value)
         {
-            var conn = _cacheSleeve.GetDatebase();
+            var conn = _redisConnection.GetDatabase(_redisDb);
             try
             {
                 if (typeof(T) == typeof(byte[]))
@@ -171,8 +183,9 @@ namespace CacheSleeve
                     var serializedValue = _objectSerializer.SerializeObject<T>(value);
                     conn.StringSet(key, serializedValue);
                 }
-                if (_cacheSleeve.Debug)
-                    Trace.WriteLine(string.Format("CS Redis: Set cache item with key {0}", key));
+
+                if (_logger.DebugEnabled)
+                    _logger.Debug(String.Format("CS Redis: Set cache item with key {0}", key));
             }
             catch (Exception)
             {
@@ -189,12 +202,13 @@ namespace CacheSleeve
         /// <param name="parentKey">The key of the parent item.</param>
         private void SetDependencies(string childKey, string parentKey)
         {
-            if (childKey.Length <= _cacheSleeve.KeyPrefix.Length || parentKey.Length <= _cacheSleeve.KeyPrefix.Length)
+            if (String.IsNullOrEmpty(childKey) || String.IsNullOrEmpty(parentKey))
                 return;
 
-            var conn = _cacheSleeve.GetDatebase();
+            var conn = _redisConnection.GetDatabase(_redisDb);
             var parentDepKey = parentKey + ".children";
             var childDepKey = childKey + ".parent";
+
             conn.ListRightPush(parentDepKey, childKey);
             conn.StringSet(childDepKey, parentKey);
             var ttl = conn.KeyTimeToLive(parentKey);
@@ -207,17 +221,17 @@ namespace CacheSleeve
                     conn.KeyExpire(child.ToString(), ttl);
             }
         }
-        
+
         /// <summary>
         /// Removes all of the dependencies of the key from the cache.
         /// </summary>
         /// <param name="key">The key of the item to remove children for.</param>
         private void RemoveDependencies(string key)
         {
-            if (key.Length <= _cacheSleeve.KeyPrefix.Length)
+            if (String.IsNullOrEmpty(key))
                 return;
 
-            var conn = _cacheSleeve.GetDatebase();
+            var conn = _redisConnection.GetDatabase(_redisDb);
             var depKey = key + ".children";
             var children = conn.ListRange(depKey, 0, -1).ToList();
             if (children.Count > 0)
@@ -231,6 +245,7 @@ namespace CacheSleeve
                 }
                 conn.KeyDelete(keys.ToArray());
             }
+
         }
     }
 }

@@ -1,10 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using CacheSleeve.Models;
-using Newtonsoft.Json;
 using StackExchange.Redis;
 
 namespace CacheSleeve
@@ -13,15 +11,13 @@ namespace CacheSleeve
     {
         public async Task<T> GetAsync<T>(string key)
         {
-            var conn = _cacheSleeve.GetDatebase();
-
-            var redisKey = _cacheSleeve.AddPrefix(key);
+            var conn = _redisConnection.GetDatabase(_redisDb);
             if (typeof(T) == typeof(string) || typeof(T) == typeof(byte[]))
-                return (T)(dynamic)(await conn.StringGetAsync(redisKey));
+                return (T)(dynamic)(await conn.StringGetAsync(key));
             string result;
             try
             {
-                result = await conn.StringGetAsync(_cacheSleeve.AddPrefix(key));
+                result = await conn.StringGetAsync(key);
             }
             catch (Exception)
             {
@@ -34,11 +30,10 @@ namespace CacheSleeve
 
         public async Task<bool> SetAsync<T>(string key, T value, string parentKey = null)
         {
-            var redisKey = _cacheSleeve.AddPrefix(key);
-            if (await InternalSetAsync(redisKey, value))
+            if (await InternalSetAsync(key, value))
             {
-                await RemoveDependenciesAsync(redisKey);
-                await SetDependenciesAsync(redisKey, _cacheSleeve.AddPrefix(parentKey));
+                await RemoveDependenciesAsync(key);
+                await SetDependenciesAsync(key, parentKey);
             }
             return true;
         }
@@ -50,28 +45,28 @@ namespace CacheSleeve
 
         public async Task<bool> SetAsync<T>(string key, T value, TimeSpan expiresIn, string parentKey = null)
         {
-            var redisKey = _cacheSleeve.AddPrefix(key);
-            var result = await InternalSetAsync(redisKey, value);
+            var result = await InternalSetAsync(key, value);
             if (result)
             {
-                var conn = _cacheSleeve.GetDatebase();
-                result = await conn.KeyExpireAsync(redisKey, expiresIn);
-                await RemoveDependenciesAsync(redisKey);
-                await SetDependenciesAsync(redisKey, _cacheSleeve.AddPrefix(parentKey));
+                var conn = _redisConnection.GetDatabase(_redisDb);
+                result = await conn.KeyExpireAsync(key, expiresIn);
+                await RemoveDependenciesAsync(key);
+                await SetDependenciesAsync(key, parentKey);
             }
             return result;
         }
 
         public async Task<bool> RemoveAsync(string key)
         {
-            var conn = _cacheSleeve.GetDatebase();
-            var redisKey = _cacheSleeve.AddPrefix(key);
-            if (await conn.KeyDeleteAsync(redisKey))
+            var conn = _redisConnection.GetDatabase(_redisDb);
+            if (await conn.KeyDeleteAsync(key))
             {
-                await RemoveDependenciesAsync(redisKey);
-                await conn.KeyDeleteAsync(redisKey + ".parent");
-                if (_cacheSleeve.Debug)
-                    Trace.WriteLine(string.Format("CS Redis: Removed cache item with key {0}", key));
+                await RemoveDependenciesAsync(key);
+                await conn.KeyDeleteAsync(key + ".parent");
+
+                if (_logger.DebugEnabled)
+                    _logger.Debug(String.Format("CS Redis: Removed cache item with key {0}", key));
+
                 return true;
             }
             return false;
@@ -79,26 +74,43 @@ namespace CacheSleeve
 
         public async Task FlushAllAsync()
         {
-            var keys = _cacheSleeve.GetAllKeys();
-            await _cacheSleeve.GetDatebase().KeyDeleteAsync(keys.ToString());
+            var tasks = new List<Task>();
+            foreach (var endpoint in _redisConnection.GetEndPoints())
+            {
+                var server = _redisConnection.GetServer(endpoint);
+                tasks.Add(server.FlushDatabaseAsync(_redisDb));
+            }
+
+            await Task.WhenAll(tasks);
         }
 
         public async Task<IEnumerable<Key>> GetAllKeysAsync()
         {
-            var conn = _cacheSleeve.GetDatebase();
-            var keys = new List<Key>();
-            var keyStrings = _cacheSleeve.GetAllKeys().ToList();
-            var tasks = new Dictionary<string, Task<TimeSpan?>>();
-            foreach (var keyString in keyStrings)
-                tasks.Add(keyString, conn.KeyTimeToLiveAsync(keyString));
-            await Task.WhenAll(tasks.Values.ToArray());
-            foreach (var taskResult in tasks)
+            var conn = _redisConnection.GetDatabase(_redisDb);
+            var keys = new List<RedisKey>();
+            foreach (var endpoint in _redisConnection.GetEndPoints())
             {
-                var key = taskResult.Key;
-                var ttl = taskResult.Value.Result;
-                keys.Add(new Key(key, ttl != null ? DateTime.Now.AddSeconds(ttl.Value.TotalSeconds) : (DateTime?)null));
+                var server = _redisConnection.GetServer(endpoint);
+                if (!server.IsSlave)
+                    keys.AddRange(server.Keys(_redisDb, "*"));
             }
-            return keys;
+            var listOfKeys = new List<Key>(keys.Count);
+            var tasks = new List<Task>(keys.Count);
+            foreach (var keyString in keys)
+            {
+                tasks.Add(conn.KeyTimeToLiveAsync(keyString).ContinueWith((t, currentKey) =>
+                {
+                    var ttl = t.Result;
+                    DateTime? expiration;
+                    if (ttl != null)
+                        expiration = DateTime.Now.AddSeconds(ttl.Value.TotalSeconds);
+                    else
+                        expiration = null;
+                    listOfKeys.Add(new Key((string)currentKey, expiration));
+                }, keyString));
+            }
+            await Task.WhenAll(tasks);
+            return listOfKeys;
         }
 
         /// <summary>
@@ -108,23 +120,11 @@ namespace CacheSleeve
         /// <returns>The amount of time in seconds.</returns>
         public async Task<long> TimeToLiveAsync(string key)
         {
-            var conn = _cacheSleeve.GetDatebase();
-            var ttl = await conn.KeyTimeToLiveAsync(_cacheSleeve.AddPrefix(key));
+            var conn = _redisConnection.GetDatabase(_redisDb);
+            var ttl = await conn.KeyTimeToLiveAsync(key);
             if (ttl == null)
                 return -1;
             return (long)ttl.Value.TotalSeconds;
-        }
-
-        /// <summary>
-        /// Publishes a message with a specified key.
-        /// Any clients connected to the Redis server and subscribed to the key will recieve the message.
-        /// </summary>
-        /// <param name="key">The key that other clients subscribe to.</param>
-        /// <param name="message">The message to send to subscribed clients.</param>
-        public async Task PublishToKeyAsync(string key, string message)
-        {
-            var conn = _cacheSleeve.GetDatebase();
-            await conn.PublishAsync(key, message);
         }
 
 
@@ -137,7 +137,7 @@ namespace CacheSleeve
         /// <returns></returns>
         private async Task<bool> InternalSetAsync<T>(string key, T value)
         {
-            var conn = _cacheSleeve.GetDatebase();
+            var conn = _redisConnection.GetDatabase(_redisDb);
             try
             {
                 if (typeof(T) == typeof(byte[]))
@@ -153,8 +153,9 @@ namespace CacheSleeve
                     var serializedValue = _objectSerializer.SerializeObject<T>(value);
                     await conn.StringSetAsync(key, serializedValue);
                 }
-                if (_cacheSleeve.Debug)
-                    Trace.WriteLine(string.Format("CS Redis: Set cache item with key {0}", key));
+
+                if (_logger.DebugEnabled)
+                    _logger.Debug(String.Format("CS Redis: Set cache item with key {0}", key));
             }
             catch (Exception)
             {
@@ -171,10 +172,10 @@ namespace CacheSleeve
         /// <param name="parentKey">The key of the parent item.</param>
         private async Task SetDependenciesAsync(string childKey, string parentKey)
         {
-            if (childKey.Length <= _cacheSleeve.KeyPrefix.Length || parentKey.Length <= _cacheSleeve.KeyPrefix.Length)
+            if (String.IsNullOrEmpty(childKey) || String.IsNullOrEmpty(parentKey))
                 return;
 
-            var conn = _cacheSleeve.GetDatebase();
+            var conn = _redisConnection.GetDatabase(_redisDb);
             var parentDepKey = parentKey + ".children";
             var childDepKey = childKey + ".parent";
             var parentKetPushTask = conn.ListRightPushAsync(parentDepKey, childKey);
@@ -193,17 +194,17 @@ namespace CacheSleeve
                 await Task.WhenAll(expirationTasks.ToArray());
             }
         }
-        
+
         /// <summary>
         /// Removes all of the dependencies of the key from the cache.
         /// </summary>
         /// <param name="key">The key of the item to remove children for.</param>
         private async Task RemoveDependenciesAsync(string key)
         {
-            if (key.Length <= _cacheSleeve.KeyPrefix.Length)
+            if (String.IsNullOrEmpty(key))
                 return;
 
-            var conn = _cacheSleeve.GetDatebase();
+            var conn = _redisConnection.GetDatabase(this._redisDb);
             var depKey = key + ".children";
             var children = (await conn.ListRangeAsync(depKey, 0, -1)).ToList();
             if (children.Count > 0)

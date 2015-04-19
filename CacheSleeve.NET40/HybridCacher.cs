@@ -7,36 +7,55 @@ namespace CacheSleeve
 {
     public partial class HybridCacher : ICacher
     {
-        private readonly CacheManager _cacheSleeve;
         private readonly RedisCacher _remoteCacher;
         private readonly HttpContextCacher _localCacher;
 
-        public HybridCacher()
-        {
-            _cacheSleeve = CacheManager.Settings;
+        public RedisCacher RemoteCacher { get { return _remoteCacher; } }
+        public HttpContextCacher LocalCacher { get { return _localCacher; } }
+        public string KeyPrefix { get; private set; }
 
-            _remoteCacher = _cacheSleeve.RemoteCacher;
-            _localCacher = _cacheSleeve.LocalCacher;
+        public HybridCacher(
+            RedisCacher redisCacher,
+            HttpContextCacher httpContextCacher
+            )
+        {
+            _remoteCacher = redisCacher;
+            _localCacher = httpContextCacher;
+
+            _remoteCacher.SubscribeToChannel("cacheSleeve.remove", (redisChannel, value) => _localCacher.Remove(value));
+            _remoteCacher.SubscribeToChannel("cacheSleeve.flush", (redisChannel, value) => _localCacher.FlushAll());
         }
 
-        
+
+        /// <summary>
+        /// Adds the prefix to the key.
+        /// </summary>
+        /// <param name="key">The specified key value.</param>
+        /// <returns>The specified key with the prefix attached.</returns>
+        public string AddPrefix(string key)
+        {
+            // much faster than string format, we assume here key will never be null
+            if (!string.IsNullOrEmpty(KeyPrefix))
+                return KeyPrefix + key;
+            return key;
+        }
+
         public T Get<T>(string key)
         {
-            var result = _localCacher.Get<T>(key);
+            var cacheKey = AddPrefix(key);
+            var result = _localCacher.Get<T>(cacheKey);
             if (result != null)
                 return result;
-            result = _remoteCacher.Get<T>(key);
+            result = _remoteCacher.Get<T>(cacheKey);
             if (result != null)
             {
-                var ttl = _remoteCacher.TimeToLive(key);
-                var parentKey = _remoteCacher.Get<string>(key + ".parent");
-                if (parentKey != null)
-                    parentKey = parentKey.Substring(_cacheSleeve.KeyPrefix.Length);
+                var ttl = _remoteCacher.TimeToLive(cacheKey);
+                var parentKey = _remoteCacher.Get<string>(cacheKey + ".parent");
                 if (ttl > -1)
-                    _localCacher.Set(key, result, TimeSpan.FromSeconds(ttl), parentKey);
+                    _localCacher.Set(cacheKey, result, TimeSpan.FromSeconds(ttl), parentKey);
                 else
-                    _localCacher.Set(key, result, parentKey);
-                result = _localCacher.Get<T>(key);
+                    _localCacher.Set(cacheKey, result, parentKey);
+                result = _localCacher.Get<T>(cacheKey);
             }
             return result;
         }
@@ -55,58 +74,64 @@ namespace CacheSleeve
 
         public bool Set<T>(string key, T value, string parentKey = null)
         {
+            var cacheKey = AddPrefix(key);
             try
             {
-                _remoteCacher.Set(key, value, parentKey);
-                _remoteCacher.PublishToKey("cacheSleeve.remove." + key, key);
-                return true;
+                _remoteCacher.Set(cacheKey, value, AddPrefix(parentKey));
             }
             catch (Exception)
             {
-                _localCacher.Remove(key);
-                _remoteCacher.Remove(key);
+                _localCacher.Remove(cacheKey);
+                _remoteCacher.Remove(cacheKey);
                 return false;
             }
+            _remoteCacher.PublishToChannel("cacheSleeve.remove", cacheKey);
+            return true;
         }
 
         public bool Set<T>(string key, T value, DateTime expiresAt, string parentKey = null)
         {
+            var cacheKey = AddPrefix(key);
             try
             {
-                _remoteCacher.Set(key, value, expiresAt, parentKey);
-                _remoteCacher.PublishToKey("cacheSleeve.remove." + key, key);
-                return true;
+                _remoteCacher.Set(cacheKey, value, expiresAt, AddPrefix(parentKey));
+
             }
             catch (Exception)
             {
-                _localCacher.Remove(key);
-                _remoteCacher.Remove(key);
+                _localCacher.Remove(cacheKey);
+                _remoteCacher.Remove(cacheKey);
                 return false;
             }
+            _remoteCacher.PublishToChannel("cacheSleeve.remove", cacheKey);
+            return true;
         }
 
         public bool Set<T>(string key, T value, TimeSpan expiresIn, string parentKey = null)
         {
+            var cacheKey = AddPrefix(key);
             try
             {
-                _remoteCacher.Set(key, value, expiresIn, parentKey);
-                _remoteCacher.PublishToKey("cacheSleeve.remove." + key, key);
-                return true;
+                _remoteCacher.Set(cacheKey, value, expiresIn, AddPrefix(parentKey));
+
             }
             catch (Exception)
             {
-                _localCacher.Remove(key);
-                _remoteCacher.Remove(key);
+                _localCacher.Remove(cacheKey);
+                _remoteCacher.Remove(cacheKey);
                 return false;
             }
+            _remoteCacher.PublishToChannel("cacheSleeve.remove", cacheKey);
+            return true;
         }
 
         public bool Remove(string key)
         {
+            var cacheKey = AddPrefix(key);
             try
             {
-                _remoteCacher.Remove(key);
-                _remoteCacher.PublishToKey("cacheSleeve.remove." + key, key);
+                _remoteCacher.Remove(cacheKey);
+                _remoteCacher.PublishToChannel("cacheSleeve.remove", cacheKey);
                 return true;
             }
             catch (Exception)
@@ -118,13 +143,17 @@ namespace CacheSleeve
         public void FlushAll()
         {
             _remoteCacher.FlushAll();
-            _remoteCacher.PublishToKey("cacheSleeve.flush", "");
+            _remoteCacher.PublishToChannel("cacheSleeve.flush", "");
         }
 
         public IEnumerable<Key> GetAllKeys()
         {
-            var keys = _remoteCacher.GetAllKeys();
-            keys = keys.Union(_localCacher.GetAllKeys());
+            var keys = 
+                _remoteCacher.GetAllKeys()
+                    .Union(_localCacher.GetAllKeys())
+                    .Distinct();
+            if (!string.IsNullOrEmpty(KeyPrefix))
+                keys = keys.Select(k => new Key(k.KeyName.Substring(this.KeyPrefix.Length), k.ExpirationDate));
             return keys;
         }
     }

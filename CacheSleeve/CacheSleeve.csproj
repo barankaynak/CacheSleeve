@@ -50,23 +50,23 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\CacheSleeve.NET40\CacheManager.cs">
-      <Link>CacheManager.cs</Link>
-    </Compile>
     <Compile Include="..\CacheSleeve.NET40\HttpContextCacher.cs">
       <Link>HttpContextCacher.cs</Link>
     </Compile>
     <Compile Include="..\CacheSleeve.NET40\HybridCacher.cs">
       <Link>HybridCacher.cs</Link>
     </Compile>
-    <Compile Include="..\CacheSleeve.NET40\ICacheManager.cs">
-      <Link>ICacheManager.cs</Link>
+    <Compile Include="..\CacheSleeve.NET40\ICacheLogger.cs">
+      <Link>ICacheLogger.cs</Link>
     </Compile>
     <Compile Include="..\CacheSleeve.NET40\ICacher.cs">
       <Link>ICacher.cs</Link>
     </Compile>
     <Compile Include="..\CacheSleeve.NET40\IObjectSerializer.cs">
       <Link>IObjectSerializer.cs</Link>
+    </Compile>
+    <Compile Include="..\CacheSleeve.NET40\IRedisConnection.cs">
+      <Link>IRedisConnection.cs</Link>
     </Compile>
     <Compile Include="..\CacheSleeve.NET40\JsonObjectSerializer.cs">
       <Link>JsonObjectSerializer.cs</Link>
@@ -77,10 +77,12 @@
     <Compile Include="..\CacheSleeve.NET40\RedisCacher.cs">
       <Link>RedisCacher.cs</Link>
     </Compile>
+    <Compile Include="..\CacheSleeve.NET40\RedisConnection.cs">
+      <Link>RedisConnection.cs</Link>
+    </Compile>
     <Compile Include="..\CacheSleeve.NET40\Utilities\UnitTestDetector.cs">
       <Link>Utilities\UnitTestDetector.cs</Link>
     </Compile>
-    <Compile Include="CacheManagerAsync.cs" />
     <Compile Include="HybridCacherAsync.cs" />
     <Compile Include="IAsyncCacher.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
