@@ -9,21 +9,34 @@ namespace CacheSleeve
     {
         private readonly RedisCacher _remoteCacher;
         private readonly HttpContextCacher _localCacher;
+        private readonly string _removeChannel;
+        private readonly string _flushChannel;
 
         public RedisCacher RemoteCacher { get { return _remoteCacher; } }
         public HttpContextCacher LocalCacher { get { return _localCacher; } }
         public string KeyPrefix { get; private set; }
 
         public HybridCacher(
+            IHybridCacherConfig config,
             RedisCacher redisCacher,
-            HttpContextCacher httpContextCacher
-            )
+            HttpContextCacher httpContextCacher)
         {
             _remoteCacher = redisCacher;
             _localCacher = httpContextCacher;
 
-            _remoteCacher.SubscribeToChannel("cacheSleeve.remove", (redisChannel, value) => _localCacher.Remove(value));
-            _remoteCacher.SubscribeToChannel("cacheSleeve.flush", (redisChannel, value) => _localCacher.FlushAll());
+            KeyPrefix = config.KeyPrefix;
+
+            _removeChannel = "cacheSleeve.remove";
+            _flushChannel = "cacheSleeve.flush";
+            if (!String.IsNullOrEmpty(KeyPrefix))
+            {
+                var prefix = "." + KeyPrefix;
+                _removeChannel += prefix;
+                _flushChannel += prefix;
+            }
+
+            _remoteCacher.SubscribeToChannel(_removeChannel, (redisChannel, value) => _localCacher.Remove(value));
+            _remoteCacher.SubscribeToChannel(_flushChannel, (redisChannel, value) => _localCacher.FlushAll());
         }
 
 
@@ -34,8 +47,7 @@ namespace CacheSleeve
         /// <returns>The specified key with the prefix attached.</returns>
         public string AddPrefix(string key)
         {
-            // much faster than string format, we assume here key will never be null
-            if (!string.IsNullOrEmpty(KeyPrefix))
+            if (key != null && !String.IsNullOrEmpty(KeyPrefix))
                 return KeyPrefix + key;
             return key;
         }
@@ -85,7 +97,7 @@ namespace CacheSleeve
                 _remoteCacher.Remove(cacheKey);
                 return false;
             }
-            _remoteCacher.PublishToChannel("cacheSleeve.remove", cacheKey);
+            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
             return true;
         }
 
@@ -103,7 +115,7 @@ namespace CacheSleeve
                 _remoteCacher.Remove(cacheKey);
                 return false;
             }
-            _remoteCacher.PublishToChannel("cacheSleeve.remove", cacheKey);
+            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
             return true;
         }
 
@@ -121,7 +133,7 @@ namespace CacheSleeve
                 _remoteCacher.Remove(cacheKey);
                 return false;
             }
-            _remoteCacher.PublishToChannel("cacheSleeve.remove", cacheKey);
+            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
             return true;
         }
 
@@ -131,7 +143,7 @@ namespace CacheSleeve
             try
             {
                 _remoteCacher.Remove(cacheKey);
-                _remoteCacher.PublishToChannel("cacheSleeve.remove", cacheKey);
+                _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
                 return true;
             }
             catch (Exception)
@@ -143,7 +155,7 @@ namespace CacheSleeve
         public void FlushAll()
         {
             _remoteCacher.FlushAll();
-            _remoteCacher.PublishToChannel("cacheSleeve.flush", "");
+            _remoteCacher.PublishToChannel(_flushChannel, "");
         }
 
         public IEnumerable<Key> GetAllKeys()

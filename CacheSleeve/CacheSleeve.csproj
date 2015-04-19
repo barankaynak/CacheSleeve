@@ -56,11 +56,17 @@
     <Compile Include="..\CacheSleeve.NET40\HybridCacher.cs">
       <Link>HybridCacher.cs</Link>
     </Compile>
+    <Compile Include="..\CacheSleeve.NET40\HybridCacherConfig.cs">
+      <Link>HybridCacherConfig.cs</Link>
+    </Compile>
     <Compile Include="..\CacheSleeve.NET40\ICacheLogger.cs">
       <Link>ICacheLogger.cs</Link>
     </Compile>
     <Compile Include="..\CacheSleeve.NET40\ICacher.cs">
       <Link>ICacher.cs</Link>
+    </Compile>
+    <Compile Include="..\CacheSleeve.NET40\IHybridCacherConfig.cs">
+      <Link>IHybridCacherConfig.cs</Link>
     </Compile>
     <Compile Include="..\CacheSleeve.NET40\IObjectSerializer.cs">
       <Link>IObjectSerializer.cs</Link>

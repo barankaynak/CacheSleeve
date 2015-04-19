@@ -43,7 +43,7 @@ namespace CacheSleeve
                 _remoteCacher.Remove(cacheKey); // this might be a really bad idea
                 return false;
             }
-            _remoteCacher.PublishToChannel("cacheSleeve.remove", cacheKey);
+            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
             return true;
         }
 
@@ -60,7 +60,7 @@ namespace CacheSleeve
                 _remoteCacher.Remove(cacheKey); // this might be a really bad idea
                 return false;
             }
-            _remoteCacher.PublishToChannel("cacheSleeve.remove", cacheKey);
+            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
             return true;
         }
 
@@ -77,7 +77,7 @@ namespace CacheSleeve
                 _remoteCacher.Remove(cacheKey); // this might be a really bad idea
                 return false;
             }
-            _remoteCacher.PublishToChannel("cacheSleeve.remove", cacheKey);
+            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
             return true;
         }
 
@@ -92,14 +92,14 @@ namespace CacheSleeve
             {
                 return false;
             }
-            _remoteCacher.PublishToChannel("cacheSleeve.remove", cacheKey);
+            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
             return true;
         }
 
         public async Task FlushAllAsync()
         {
             await _remoteCacher.FlushAllAsync();
-            _remoteCacher.PublishToChannel("cacheSleeve.flush", "");
+            _remoteCacher.PublishToChannel(_flushChannel, "");
         }
 
         public async Task<IEnumerable<Key>> GetAllKeysAsync()
