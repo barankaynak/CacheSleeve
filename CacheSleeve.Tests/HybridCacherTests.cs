@@ -120,6 +120,7 @@ namespace CacheSleeve.Tests
             {
                 var lastMessage = default(string);
                 SubscriptionHit += (key, message) => { lastMessage = message; };
+                _hybridCacher.Set("key", "value");
                 _hybridCacher.Remove("key");
                 Thread.Sleep(30);
                 Assert.Equal(_hybridCacher.AddPrefix("key"), lastMessage);

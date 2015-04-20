@@ -30,12 +30,13 @@ namespace CacheSleeve
 
         public async Task<bool> SetAsync<T>(string key, T value, string parentKey = null)
         {
-            if (await InternalSetAsync(key, value))
+            var result = await this.InternalSetAsync(key, value);
+            if (result)
             {
                 await RemoveDependenciesAsync(key);
                 await SetDependenciesAsync(key, parentKey);
             }
-            return true;
+            return result;
         }
 
         public Task<bool> SetAsync<T>(string key, T value, DateTime expiresAt, string parentKey = null)

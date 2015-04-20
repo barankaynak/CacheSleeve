@@ -89,9 +89,10 @@ namespace CacheSleeve
         public bool Set<T>(string key, T value, string parentKey = null)
         {
             var cacheKey = AddPrefix(key);
+            bool isSet;
             try
             {
-                _remoteCacher.Set(cacheKey, value, AddPrefix(parentKey));
+                isSet = _remoteCacher.Set(cacheKey, value, this.AddPrefix(parentKey));
             }
             catch (Exception)
             {
@@ -99,17 +100,18 @@ namespace CacheSleeve
                 _remoteCacher.Remove(cacheKey);
                 return false;
             }
-            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
-            return true;
+            if (isSet)
+                _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
+            return isSet;
         }
 
         public bool Set<T>(string key, T value, DateTime expiresAt, string parentKey = null)
         {
             var cacheKey = AddPrefix(key);
+            bool isSet;
             try
             {
-                _remoteCacher.Set(cacheKey, value, expiresAt, AddPrefix(parentKey));
-
+                isSet = _remoteCacher.Set(cacheKey, value, expiresAt, AddPrefix(parentKey));
             }
             catch (Exception)
             {
@@ -117,17 +119,18 @@ namespace CacheSleeve
                 _remoteCacher.Remove(cacheKey);
                 return false;
             }
-            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
-            return true;
+            if (isSet)
+                _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
+            return isSet;
         }
 
         public bool Set<T>(string key, T value, TimeSpan expiresIn, string parentKey = null)
         {
             var cacheKey = AddPrefix(key);
+            bool isSet;
             try
             {
-                _remoteCacher.Set(cacheKey, value, expiresIn, AddPrefix(parentKey));
-
+                isSet = _remoteCacher.Set(cacheKey, value, expiresIn, AddPrefix(parentKey));
             }
             catch (Exception)
             {
@@ -135,23 +138,28 @@ namespace CacheSleeve
                 _remoteCacher.Remove(cacheKey);
                 return false;
             }
-            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
-            return true;
+            if (isSet)
+                _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
+            return isSet;
         }
 
         public bool Remove(string key)
         {
             var cacheKey = AddPrefix(key);
+            bool isRemoved;
             try
             {
-                _remoteCacher.Remove(cacheKey);
-                _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
-                return true;
+                isRemoved = _remoteCacher.Remove(cacheKey);
             }
             catch (Exception)
             {
                 return false;
             }
+            if (isRemoved)
+            {
+                _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
+            }
+            return isRemoved;
         }
 
         public void FlushAll()

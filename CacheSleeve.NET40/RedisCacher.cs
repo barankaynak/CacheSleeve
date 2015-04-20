@@ -46,12 +46,13 @@ namespace CacheSleeve
 
         public bool Set<T>(string key, T value, string parentKey = null)
         {
-            if (InternalSet(key, value))
+            var result = InternalSet(key, value);
+            if (result)
             {
                 RemoveDependencies(key);
                 SetDependencies(key, parentKey);
             }
-            return true;
+            return result;
         }
 
         public bool Set<T>(string key, T value, DateTime expiresAt, string parentKey = null)

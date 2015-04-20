@@ -33,9 +33,10 @@ namespace CacheSleeve
         public async Task<bool> SetAsync<T>(string key, T value, string parentKey = null)
         {
             var cacheKey = AddPrefix(key);
+            bool isSet;
             try
             {
-                await _remoteCacher.SetAsync(cacheKey, value, AddPrefix(parentKey));
+                isSet = await _remoteCacher.SetAsync(cacheKey, value, AddPrefix(parentKey));
             }
             catch (Exception)
             {
@@ -43,16 +44,18 @@ namespace CacheSleeve
                 _remoteCacher.Remove(cacheKey); // this might be a really bad idea
                 return false;
             }
-            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
+            if (isSet)
+                _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
             return true;
         }
 
         public async Task<bool> SetAsync<T>(string key, T value, DateTime expiresAt, string parentKey = null)
         {
             var cacheKey = AddPrefix(key);
+            bool isSet;
             try
             {
-                await _remoteCacher.SetAsync(cacheKey, value, expiresAt, AddPrefix(parentKey));
+                isSet = await _remoteCacher.SetAsync(cacheKey, value, expiresAt, AddPrefix(parentKey));
             }
             catch (Exception)
             {
@@ -60,16 +63,18 @@ namespace CacheSleeve
                 _remoteCacher.Remove(cacheKey); // this might be a really bad idea
                 return false;
             }
-            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
+            if (isSet)
+                _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
             return true;
         }
 
         public async Task<bool> SetAsync<T>(string key, T value, TimeSpan expiresIn, string parentKey = null)
         {
             var cacheKey = AddPrefix(key);
+            bool isSet;
             try
             {
-                await _remoteCacher.SetAsync(key, value, expiresIn, AddPrefix(parentKey));
+                isSet = await _remoteCacher.SetAsync(key, value, expiresIn, AddPrefix(parentKey));
             }
             catch (Exception)
             {
@@ -77,23 +82,28 @@ namespace CacheSleeve
                 _remoteCacher.Remove(cacheKey); // this might be a really bad idea
                 return false;
             }
-            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
+            if (isSet)
+                _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
             return true;
         }
 
         public async Task<bool> RemoveAsync(string key)
         {
             var cacheKey = AddPrefix(key);
+            bool isRemoved;
             try
             {
-                await _remoteCacher.RemoveAsync(cacheKey);
+                isRemoved = await _remoteCacher.RemoveAsync(cacheKey);
             }
             catch (Exception)
             {
                 return false;
             }
-            _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
-            return true;
+            if (isRemoved)
+            {
+                _remoteCacher.PublishToChannel(_removeChannel, cacheKey);
+            }
+            return isRemoved;
         }
 
         public async Task FlushAllAsync()
