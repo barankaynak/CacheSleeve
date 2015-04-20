@@ -8,11 +8,11 @@ namespace CacheSleeve
 {
     public partial class RedisCacher : ICacher
     {
-        private ConnectionMultiplexer _redisConnection;
-        private int _redisDb;
-        private readonly IObjectSerializer _objectSerializer;
+        private readonly int _redisDb;
         private readonly ICacheLogger _logger;
-
+        private readonly IObjectSerializer _objectSerializer;
+        private readonly ConnectionMultiplexer _redisConnection;
+        
         public RedisCacher(
             IRedisConnection redisConnection,
             IObjectSerializer serializer,

@@ -7,14 +7,16 @@ namespace CacheSleeve
 {
     public partial class HybridCacher : ICacher
     {
-        private readonly RedisCacher _remoteCacher;
-        private readonly HttpContextCacher _localCacher;
         private readonly string _removeChannel;
         private readonly string _flushChannel;
+        private readonly RedisCacher _remoteCacher;
+        private readonly HttpContextCacher _localCacher;
+        
 
+        public string KeyPrefix { get; private set; }
         public RedisCacher RemoteCacher { get { return _remoteCacher; } }
         public HttpContextCacher LocalCacher { get { return _localCacher; } }
-        public string KeyPrefix { get; private set; }
+        
 
         public HybridCacher(
             IHybridCacherConfig config,
